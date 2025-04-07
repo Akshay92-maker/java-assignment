@@ -116,10 +116,25 @@ class CachingServiceApplicationTests {
 		cachingService.clear();
 
 		// Use reflection to access the private 'cache' and 'accessOrder' fields
-		Field cacheField = CachingService.class.getDeclaredField("cache");
-		cacheField.setAccessible(true);
-		@SuppressWarnings("unchecked")
-		Map<Long, BaseEntity> cache = (Map<Long, BaseEntity>) cacheField.get(cachingService);
+		try {
+			try {
+				Field cacheField = CachingService.class.getDeclaredField("cache");
+				cacheField.setAccessible(true);
+				@SuppressWarnings("unchecked")
+				Map<Long, BaseEntity> cache = (Map<Long, BaseEntity>) cacheField.get(cachingService);
+
+				// Verify that entity1 is evicted and entity2 and entity3 remain
+				assertFalse(cache.containsKey(1L), "Entity1 should be evicted from the cache");
+				assertTrue(cache.containsKey(2L), "Entity2 should remain in the cache");
+				assertTrue(cache.containsKey(3L), "Entity3 should remain in the cache");
+				assertEquals(0, cache.size(), "Cache should be cleared");
+			} catch (NoSuchFieldException e) {
+				fail("Reflection error: " + e.getMessage());
+			}
+
+		} catch (IllegalAccessException e) {
+			fail("Reflection error: " + e.getMessage());
+		}
 
 		Field accessOrderField = CachingService.class.getDeclaredField("accessOrder");
 		accessOrderField.setAccessible(true);
@@ -127,39 +142,127 @@ class CachingServiceApplicationTests {
 		Map<Long, Long> accessOrder = (Map<Long, Long>) accessOrderField.get(cachingService);
 
 		// Verify that the cache is cleared
-		assertEquals(0, cache.size(), "Cache should be cleared");
 		assertEquals(0, accessOrder.size(), "Access order should be cleared");
 	}
 
 	@Test
-void testEvictLeastUsed() throws NoSuchFieldException, IllegalAccessException, NoSuchMethodException, InvocationTargetException {
-    // Create mock entities and add them to the cache
-    BaseEntity entity1 = new BaseEntity();
-    entity1.setId(1L);
-    BaseEntity entity2 = new BaseEntity();
-    entity2.setId(2L);
+	void testEvictLeastUsed()
+			throws NoSuchFieldException, IllegalAccessException, NoSuchMethodException, InvocationTargetException {
+		// Create mock entities and add them to the cache
+		BaseEntity entity1 = new BaseEntity();
+		entity1.setId(1L);
+		BaseEntity entity2 = new BaseEntity();
+		entity2.setId(2L);
 
-    cachingService.add(entity1);
-    cachingService.add(entity2);
+		cachingService.add(entity1);
+		cachingService.add(entity2);
 
-    // Simulate access to entity1 to make it the least recently used
-    cachingService.get(1L);
+		// Simulate access to entity1 to make it the least recently used
+		cachingService.get(1L);
 
-    // Use reflection to access the private 'evictLeastUsed' method
-    Method evictMethod = CachingService.class.getDeclaredMethod("evictLeastUsed");
-    evictMethod.setAccessible(true);
+		// Use reflection to access the private 'evictLeastUsed' method
+		Method evictMethod = CachingService.class.getDeclaredMethod("evictLeastUsed");
+		evictMethod.setAccessible(true);
 
-    // Invoke the private method
-    evictMethod.invoke(cachingService);
+		// Invoke the private method
+		evictMethod.invoke(cachingService);
 
-    // Use reflection to access the private 'cache' field
-    Field cacheField = CachingService.class.getDeclaredField("cache");
-    cacheField.setAccessible(true);
-    @SuppressWarnings("unchecked")
-    Map<Long, BaseEntity> cache = (Map<Long, BaseEntity>) cacheField.get(cachingService);
+		// Use reflection to access the private 'cache' field
+		Field cacheField = CachingService.class.getDeclaredField("cache");
+		cacheField.setAccessible(true);
+		@SuppressWarnings("unchecked")
+		Map<Long, BaseEntity> cache = (Map<Long, BaseEntity>) cacheField.get(cachingService);
 
-    // Verify that entity2 is evicted
-    assertFalse(cache.containsKey(2L), "Entity2 should be evicted from cache");
-}
+		// Verify that entity2 is evicted
+		assertFalse(cache.containsKey(2L), "Entity2 should be evicted from cache");
+	}
 
+	@Test
+	void testAddNullEntity() {
+		// Attempt to add a null entity
+		assertThrows(IllegalArgumentException.class, () -> cachingService.add(null),
+				"Adding null entity should throw an exception");
+	}
+
+	@Test
+	void testEvictFromEmptyCache() throws NoSuchMethodException, InvocationTargetException, IllegalAccessException {
+		// Use reflection to access the private 'evictLeastUsed' method
+		Method evictMethod = CachingService.class.getDeclaredMethod("evictLeastUsed");
+		evictMethod.setAccessible(true);
+
+		// Invoke the private method on an empty cache
+		evictMethod.invoke(cachingService);
+
+		// Verify no exceptions are thrown and cache remains empty
+
+		try {
+			Field cacheField = CachingService.class.getDeclaredField("cache");
+			cacheField.setAccessible(true);
+			@SuppressWarnings("unchecked")
+			Map<Long, BaseEntity> cache = (Map<Long, BaseEntity>) cacheField.get(cachingService);
+
+			assertEquals(0, cache.size(), "Cache should remain empty after eviction attempt");
+
+		} catch (NoSuchFieldException e) {
+			fail("Reflection error: " + e.getMessage());
+		}
+
+	}
+
+	@Test
+	void testAddDuplicateEntities() throws NoSuchFieldException, IllegalAccessException {
+		// Create a mock entity
+		BaseEntity entity = new BaseEntity();
+		entity.setId(1L);
+
+		// Add the entity twice
+		cachingService.add(entity);
+		cachingService.add(entity);
+
+		// Use reflection to access the private 'cache' field
+		Field cacheField = CachingService.class.getDeclaredField("cache");
+		cacheField.setAccessible(true);
+		@SuppressWarnings("unchecked")
+		Map<Long, BaseEntity> cache = (Map<Long, BaseEntity>) cacheField.get(cachingService);
+
+		// Verify that the cache contains only one instance of the entity
+		assertEquals(1, cache.size(), "Cache should contain only one instance of the entity");
+		assertTrue(cache.containsKey(1L), "Entity should be present in the cache");
+		assertEquals(entity, cache.get(1L), "The cached entity should match the added entity");
+	}
+
+	@Test
+	void testCacheSizeLimit() throws NoSuchFieldException, IllegalAccessException {
+		// Assuming the cache has a size limit of 2
+		BaseEntity entity1 = new BaseEntity();
+		entity1.setId(1L);
+		BaseEntity entity2 = new BaseEntity();
+		entity2.setId(2L);
+		BaseEntity entity3 = new BaseEntity();
+		entity3.setId(3L);
+
+		cachingService.add(entity1);
+		cachingService.add(entity2);
+		cachingService.add(entity3); // This should evict entity1 if the limit is 2
+
+		// Use reflection to access the private 'cache' field
+		Field cacheField = CachingService.class.getDeclaredField("cache");
+		cacheField.setAccessible(true);
+		@SuppressWarnings("unchecked")
+		Map<Long, BaseEntity> cache = (Map<Long, BaseEntity>) cacheField.get(cachingService);
+
+		// Verify that entity1 is evicted and entity2 and entity3 remain
+		assertFalse(cache.containsKey(1L), "Entity1 should be evicted from the cache");
+		assertTrue(cache.containsKey(2L), "Entity2 should remain in the cache");
+		assertTrue(cache.containsKey(3L), "Entity3 should remain in the cache");
+	}
+
+	@Test
+	void testGetNonExistentEntity() {
+		// Attempt to fetch an entity that does not exist in the cache
+		BaseEntity fetchedEntity = cachingService.get(999L);
+
+		// Verify that the result is null
+		assertNull(fetchedEntity, "Fetching a non-existent entity should return null");
+	}
 }
