@@ -75,4 +75,16 @@ public class CachingController {
                     .body("Failed to clear cache: " + e.getMessage());
         }
     }
+
+    @DeleteMapping("/removeAll")
+    public ResponseEntity<String> removeAll() {
+        try {
+            cachingService.removeAll();
+            return ResponseEntity.ok("Removed all entities from cache and database successfully");
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Failed to clear cache: " + e.getMessage());
+        }
+    }
+
 }

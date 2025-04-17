@@ -6,7 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import lombok.extern.slf4j.Slf4j;
-
+import org.springframework.transaction.annotation.Transactional;
 import java.util.*;
 
 @Slf4j
@@ -28,22 +28,34 @@ public class CachingService {
 	}
 
 	// Add entity to cache, evict if cache exceeds maxSize
+	@Transactional
 	public synchronized void add(BaseEntity entity) {
 		try {
+
 			if (cache.size() >= maxSize) {
 				evictLeastUsed(); // Evict least recently used entity
 			}
+			if ((database.isPresent() && database.get().existsById(entity.getId())) || (entity.getId() == null)) {
+				if(entity.getId() == null)
+					throw new IllegalArgumentException("Entity cannot be null.");
+
+				throw new IllegalArgumentException("Entity with ID " + entity.getId() + " already exists in the database.");
+			}
+
+			database.ifPresent(db -> db.save(entity)); // Optionally save to database
 			cache.put(entity.getId(), entity);
 			accessOrder.put(entity.getId(), System.nanoTime()); // Update access time
-			database.ifPresent(db -> db.save(entity)); // Optionally save to database
 			log.info("Entity added: {}", entity);
 		} catch (Exception e) {
 			log.error("Error adding entity to cache: {}", e.getMessage());
+			throw e;
 		}
 	}
 
 	// Remove entity from cache and database by ID
+	@Transactional
 	public synchronized boolean remove(Long id) {
+
 		try {
 			if (cache.containsKey(id)) {
 				cache.remove(id);
@@ -53,7 +65,8 @@ public class CachingService {
 				return true;
 			} else {
 				log.warn("Entity with ID {} not found in cache.", id);
-				return false; // Return false if entity isn't in the cache
+				database.ifPresent(db -> {db.deleteById(id);});
+				return true; // Return false if entity isn't in the cache
 			}
 		} catch (Exception e) {
 			log.error("Error removing entity from cache: {}", e.getMessage());
@@ -62,6 +75,7 @@ public class CachingService {
 	}
 
 	// Remove all entities from cache and database
+	@Transactional
 	public synchronized void removeAll() {
 		try {
 			cache.clear();
@@ -74,6 +88,7 @@ public class CachingService {
 	}
 
 	// Fetch entity from cache or database
+	@Transactional
 	public synchronized BaseEntity get(Long id) {
 		try {
 			if (cache.containsKey(id)) {
@@ -93,6 +108,7 @@ public class CachingService {
 	}
 
 	// Clear the entire cache
+	@Transactional
 	public synchronized void clear() {
 		try {
 			cache.clear();
@@ -104,7 +120,8 @@ public class CachingService {
 	}
 
 	// Evict the least recently used item from the cache
-	private void evictLeastUsed() {
+	@Transactional
+	public void evictLeastUsed() {
 		try {
 			// Get the key with the least recent access time
 			Long leastUsedId = accessOrder.entrySet().stream()

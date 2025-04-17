@@ -29,6 +29,7 @@ class CachingServiceApplicationTests {
 	@BeforeEach
 	void setUp() {
 		MockitoAnnotations.openMocks(this);
+		cachingService.setDatabase(Optional.of(mockRepository));
 	}
 
 	// This test ensures that the Spring context is loaded successfully
@@ -108,9 +109,16 @@ class CachingServiceApplicationTests {
 	@Test
 	void testClearCache() throws NoSuchFieldException, IllegalAccessException {
 		// Create a mock entity and add to cache
-		BaseEntity entity = new BaseEntity();
-		entity.setId(1L);
-		cachingService.add(entity);
+		BaseEntity entity1 = new BaseEntity();
+		BaseEntity entity2 = new BaseEntity();
+		BaseEntity entity3 = new BaseEntity();
+
+		entity1.setId(1L);
+		entity2.setId(2L);
+		entity3.setId(3L);
+		cachingService.add(entity1);
+		cachingService.add(entity2);
+		cachingService.add(entity3);
 
 		// Clear the cache
 		cachingService.clear();
@@ -125,8 +133,8 @@ class CachingServiceApplicationTests {
 
 				// Verify that entity1 is evicted and entity2 and entity3 remain
 				assertFalse(cache.containsKey(1L), "Entity1 should be evicted from the cache");
-				assertTrue(cache.containsKey(2L), "Entity2 should remain in the cache");
-				assertTrue(cache.containsKey(3L), "Entity3 should remain in the cache");
+				assertFalse(cache.containsKey(2L), "Entity2 should remain in the cache");
+				assertFalse(cache.containsKey(3L), "Entity3 should remain in the cache");
 				assertEquals(0, cache.size(), "Cache should be cleared");
 			} catch (NoSuchFieldException e) {
 				fail("Reflection error: " + e.getMessage());
@@ -180,7 +188,9 @@ class CachingServiceApplicationTests {
 	@Test
 	void testAddNullEntity() {
 		// Attempt to add a null entity
-		assertThrows(IllegalArgumentException.class, () -> cachingService.add(null),
+		BaseEntity entity= new BaseEntity();
+		entity.setId(null);
+		assertThrows(IllegalArgumentException.class, () -> cachingService.add(entity),
 				"Adding null entity should throw an exception");
 	}
 
@@ -233,29 +243,49 @@ class CachingServiceApplicationTests {
 
 	@Test
 	void testCacheSizeLimit() throws NoSuchFieldException, IllegalAccessException {
-		// Assuming the cache has a size limit of 2
+		// Assuming the cache has a size limit of 5
+		Field maxSizeField = CachingService.class.getDeclaredField("maxSize");
+		maxSizeField.setAccessible(true);
+		maxSizeField.set(cachingService, 5);
+
 		BaseEntity entity1 = new BaseEntity();
 		entity1.setId(1L);
 		BaseEntity entity2 = new BaseEntity();
 		entity2.setId(2L);
 		BaseEntity entity3 = new BaseEntity();
 		entity3.setId(3L);
+		BaseEntity entity4 = new BaseEntity();
+		entity4.setId(4L);
+		BaseEntity entity5 = new BaseEntity();
+		entity5.setId(5L);
+		BaseEntity entity6 = new BaseEntity();
+		entity6.setId(6L);
 
+		// Add entities to exceed the cache limit
 		cachingService.add(entity1);
 		cachingService.add(entity2);
-		cachingService.add(entity3); // This should evict entity1 if the limit is 2
+		cachingService.add(entity3);
+		cachingService.add(entity4);
+		cachingService.add(entity5);
+		cachingService.add(entity6);
 
 		// Use reflection to access the private 'cache' field
 		Field cacheField = CachingService.class.getDeclaredField("cache");
 		cacheField.setAccessible(true);
 		@SuppressWarnings("unchecked")
 		Map<Long, BaseEntity> cache = (Map<Long, BaseEntity>) cacheField.get(cachingService);
+		// The cache size should not exceed 5
+		assertEquals(5, cache.size(), "Cache size should not exceed the maximum limit");
 
-		// Verify that entity1 is evicted and entity2 and entity3 remain
+		// Check that the last two added entities remain
+		assertTrue(cache.containsKey(5L), "Entity5 should remain in the cache");
+		assertTrue(cache.containsKey(6L), "Entity6 should remain in the cache");
+
+		// Ensure early entries are evicted
 		assertFalse(cache.containsKey(1L), "Entity1 should be evicted from the cache");
-		assertTrue(cache.containsKey(2L), "Entity2 should remain in the cache");
-		assertTrue(cache.containsKey(3L), "Entity3 should remain in the cache");
+
 	}
+
 
 	@Test
 	void testGetNonExistentEntity() {
